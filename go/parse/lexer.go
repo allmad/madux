@@ -61,11 +61,20 @@ const (
 	itemParam
 	itemCollect
 	itemEscape
-	itemCsiEntry
-	itemDcsEntry
 	itemDcsDispatch
 	itemOscString
 )
+
+func (i itemType) IsDispatch() bool {
+	switch i {
+	case itemCsiDispatch, itemEscDispatch, itemDcsDispatch:
+		fallthrough
+	case itemOscString, itemPrint, itemExecute:
+		return true
+	default:
+		return false
+	}
+}
 
 func (i itemType) String() string {
 	switch i {
@@ -95,10 +104,6 @@ func (i itemType) String() string {
 		return "collect"
 	case itemEscape:
 		return "escape"
-	case itemCsiEntry:
-		return "csi_entry"
-	case itemDcsEntry:
-		return "dcs_entry"
 	case itemOscString:
 		return "osc_string"
 	default:
