@@ -16,8 +16,9 @@ func TestLexer(t *testing.T) {
 	defer fd.Close()
 
 	lex := Lex(fd)
-	for item := range lex.items {
-
+	token := NewToken(lex)
+	go token.Run()
+	for item := range token.out {
 		fmt.Println(item)
 	}
 }

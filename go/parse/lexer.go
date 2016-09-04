@@ -170,6 +170,7 @@ func (l *lexer) emit(i itemType) {
 	buf := make([]byte, len(l.buffer))
 	copy(buf, l.buffer)
 	l.buffer = l.buffer[:0]
+	l.lastItemType = i
 
 	it := item{
 		typ: i,
@@ -368,7 +369,7 @@ func stateDcsEntry(l *lexer) stateFn {
 		case r.in(0x7f):
 			l.emit(itemIgnore)
 			continue
-		// transmit
+		// action
 		case r.rn(0x40, 0x7E):
 			return l.action(itemNil, stateDcsPassthrough)
 		case r.rn(0x20, 0x2F):
