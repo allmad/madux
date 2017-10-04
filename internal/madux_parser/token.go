@@ -1,9 +1,6 @@
-package parse
+package parser
 
-import (
-	"fmt"
-	"strconv"
-)
+import "fmt"
 
 type Func struct {
 	typ     itemType
@@ -13,11 +10,9 @@ type Func struct {
 }
 
 func (f Func) String() string {
-	return fmt.Sprintf("{typ: %v, param: %v, coll: %v, name: %v}",
-		f.typ,
-		strconv.Quote(string(f.param)),
-		strconv.Quote(string(f.collect)),
-		strconv.Quote(string(f.name)),
+	return fmt.Sprintf(
+		"&Func{typ: %v, param: %q, coll: %q, name: %q}",
+		f.typ, f.param, f.collect, f.name,
 	)
 }
 
@@ -43,19 +38,21 @@ func (t *Token) Run() {
 			close(t.out)
 		}()
 		for item := range ch {
-			if item.typ == itemParam {
+			switch item.typ {
+			case itemParam:
 				f.param = append(f.param, item.val...)
-				continue
-			}
-			if item.typ == itemCollect {
+			case itemCollect:
 				f.collect = append(f.collect, item.val...)
-				continue
-			}
-			if item.typ.IsDispatch() {
-				f.typ = item.typ
-				f.name = item.val
-				t.out <- f
-				f = Func{}
+			case itemClear:
+				f.param = nil
+				f.collect = nil
+			default:
+				if item.typ.IsDispatch() {
+					f.typ = item.typ
+					f.name = item.val
+					t.out <- f
+					f = Func{}
+				}
 			}
 		}
 	}()
@@ -67,9 +64,6 @@ func (t *Token) runMerge(out chan item) {
 	for item := range t.lexch {
 		if item.typ == itemEOF {
 			break
-		}
-		if item.typ == itemClear {
-			continue
 		}
 		switch item.typ {
 		case itemParam, itemPrint, itemCollect, itemExecute:

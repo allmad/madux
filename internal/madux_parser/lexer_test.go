@@ -1,4 +1,4 @@
-package parse
+package parser
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 func TestLexer(t *testing.T) {
 	defer test.New(t)
 
-	fd, err := os.Open("testdata/lexer.txt")
+	fd, err := os.Open("testdata/zsh.txt")
 	test.Nil(err)
 	defer fd.Close()
 

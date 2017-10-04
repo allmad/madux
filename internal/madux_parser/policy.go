@@ -1,207 +1,6 @@
-package parse
+package parser
 
-import (
-	"bufio"
-	"fmt"
-	"io"
-	"strconv"
-)
-
-type Rune rune
-
-func (r Rune) rn(start, end rune) bool {
-	return rune(r) >= start && rune(r) <= end
-}
-
-func (r Rune) isExecute() bool {
-	return r.rn(0x00, 0x17) || r.in(0x19) || r.rn(0x1C, 0x1F)
-}
-
-func (r Rune) in(n ...rune) bool {
-	for idx := range n {
-		if rune(r) == n[idx] {
-			return true
-		}
-	}
-	return false
-}
-
-func (r Rune) isST() bool {
-	return r.in(0x9c, 0x18, 0x1A, 0x1b, 0x07)
-}
-
-type item struct {
-	typ itemType
-	val []byte
-}
-
-func (i item) String() string {
-	return fmt.Sprintf("{typ: %v, val: %v}",
-		i.typ, strconv.Quote(string(i.val)),
-	)
-}
-
-const (
-	eof Rune = -1
-)
-
-type itemType int
-
-const (
-	itemNil itemType = iota
-	itemError
-	itemEOF
-	itemPrint
-	itemClear
-	itemExecute
-	itemIgnore
-	itemNoAction
-	itemCsiDispatch
-	itemEscDispatch
-	itemParam
-	itemCollect
-	itemEscape
-	itemDcsDispatch
-	itemOscString
-)
-
-func (i itemType) IsDispatch() bool {
-	switch i {
-	case itemCsiDispatch, itemEscDispatch, itemDcsDispatch:
-		fallthrough
-	case itemOscString, itemPrint, itemExecute:
-		return true
-	default:
-		return false
-	}
-}
-
-func (i itemType) String() string {
-	switch i {
-	case itemNil:
-		return "nil"
-	case itemError:
-		return "error"
-	case itemEOF:
-		return "eof"
-	case itemPrint:
-		return "print"
-	case itemClear:
-		return "clear"
-	case itemExecute:
-		return "execute"
-	case itemIgnore:
-		return "ignore"
-	case itemNoAction:
-		return "noaction"
-	case itemCsiDispatch:
-		return "csi_dispatch"
-	case itemEscDispatch:
-		return "esc_dispatch"
-	case itemParam:
-		return "param"
-	case itemCollect:
-		return "collect"
-	case itemEscape:
-		return "escape"
-	case itemOscString:
-		return "osc_string"
-	default:
-		return fmt.Sprintf("#%v", int(i))
-	}
-}
-
-type stateFn func(l *lexer) stateFn
-
-type lexer struct {
-	reader *bufio.Reader
-	buffer []byte
-	state  stateFn
-	items  chan item
-
-	lastItemType itemType
-	lastSize     int
-
-	syncPos int
-}
-
-func Lex(r io.Reader) *lexer {
-	l := &lexer{
-		reader: bufio.NewReader(r),
-		items:  make(chan item),
-	}
-	go l.run()
-	return l
-}
-
-func (l *lexer) run() {
-	for l.state = stateAnywhere; l.state != nil; {
-		l.state = l.state(l)
-	}
-
-	l.items <- item{
-		typ: l.lastItemType,
-		val: l.buffer,
-	}
-	close(l.items)
-}
-
-func (l *lexer) defval(r Rune) stateFn {
-	if r == eof {
-		return nil
-	}
-	panic(fmt.Sprintf("unreachable : %v", r))
-}
-
-func (l *lexer) fire(i itemType) {
-	l.items <- item{typ: i}
-}
-
-func (l *lexer) action(typ itemType, fn stateFn) stateFn {
-	l.emit(typ)
-	return fn
-}
-
-func (l *lexer) skip() {
-	l.emit(itemNil)
-}
-
-func (l *lexer) emit(i itemType) {
-	if i == itemNil {
-		l.buffer = l.buffer[:0]
-		return
-	}
-
-	buf := make([]byte, len(l.buffer))
-	copy(buf, l.buffer)
-	l.buffer = l.buffer[:0]
-	l.lastItemType = i
-
-	it := item{
-		typ: i,
-		val: buf,
-	}
-	l.items <- it
-}
-
-func (l *lexer) discard() {
-	l.buffer = l.buffer[:len(l.buffer)-l.lastSize]
-	l.lastSize = 0
-}
-
-func (l *lexer) next() Rune {
-	r, size, err := l.reader.ReadRune()
-	if err == io.EOF {
-		return eof
-	}
-	l.lastSize = size
-
-	l.buffer = append(l.buffer, []byte(string(r))...)
-	return Rune(r)
-}
-
-// -----------------------------------------------------------------------------
-
+// start
 func stateAnywhere(l *lexer) stateFn {
 	switch r := l.next(); {
 	case r.in(0x18, 0x1a):
@@ -223,7 +22,6 @@ func stateAnywhere(l *lexer) stateFn {
 	case r.in(0x98, 0x9e, 0x9f):
 		return l.action(itemNil, stateSOS_PM_APC)
 	default:
-
 		switch {
 		case r.isExecute():
 			return l.action(itemExecute, stateAnywhere)
@@ -236,7 +34,7 @@ func stateAnywhere(l *lexer) stateFn {
 }
 
 func stateEscape(l *lexer) stateFn {
-	l.fire(itemClear)
+	l.doClear()
 
 	for {
 		switch r := l.next(); {
@@ -285,7 +83,7 @@ func stateEscapeIntermedia(l *lexer) stateFn {
 }
 
 func stateCsiEntry(l *lexer) stateFn {
-	l.fire(itemClear)
+	l.doClear()
 
 	for {
 		switch r := l.next(); {
@@ -364,7 +162,7 @@ func stateCsiIgnore(l *lexer) stateFn {
 }
 
 func stateDcsEntry(l *lexer) stateFn {
-	l.fire(itemClear)
+	l.doClear()
 
 	for {
 		switch r := l.next(); {
@@ -464,18 +262,22 @@ func stateDcsPassthrough(l *lexer) stateFn {
 	}
 }
 
+// Operating System Controls
+// OSC Ps ; Pt ST/BEL
 func stateOscString(l *lexer) stateFn {
+
 	for {
 		r := l.next()
 		switch {
-		case r.isST():
-			l.discard()
+		case r.isST(): // ^G, ST
 			return l.action(itemOscString, stateAnywhere)
 		case r.isExecute():
 			l.emit(itemNil)
 			continue
 		case r == eof:
 			return nil
+		default:
+			return l.action(itemParam, stateOscString)
 		}
 	}
 }
@@ -483,5 +285,3 @@ func stateOscString(l *lexer) stateFn {
 func stateSOS_PM_APC(l *lexer) stateFn {
 	return nil
 }
-
-// -----------------------------------------------------------------------------
