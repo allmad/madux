@@ -1,0 +1,1 @@
+package madux_proto
